@@ -128,22 +128,23 @@ class SpamAssassinPlugin extends \RainLoop\Plugins\AbstractPlugin
 			}
 			array_push($arrEmails, $sEmail);
 		}
-	
 		
-	
 		$handle = fopen($sConfig, 'r');
 		$out = array();
 		if ($handle) {
 			$re = $config_list = '';
-			 if (is_int(stripos($sList, 'blacklist'))) {
+			if (is_int(stripos($sList, 'blacklist'))) {
 			 	$re = "/(blacklist_from\s)(.*)/m";
 			 	$config_list = "blacklist_from ";
-			 } elseif (is_int(stripos($sList, 'whitelist'))) {
+			} elseif (is_int(stripos($sList, 'whitelist'))) {
 			 	$re = "/(whitelist_from\s)(.*)/m";
 			 	$config_list = "whitelist_from ";
-			 }
+			}
 			
-		 	 while (($line = fgets($handle)) !== false) {
+			$bChanged = true; //Force restart of spamd service
+			//TO-DO: Process/Restart on change only!
+			
+			while (($line = fgets($handle)) !== false) {
 		 		if (preg_match($re, $line, $ematch)) {
 		 			//For webmail public, we append existing 
 		 			//emails from config file
@@ -155,28 +156,33 @@ class SpamAssassinPlugin extends \RainLoop\Plugins\AbstractPlugin
 		 				array_push($out, $line);
 		 			}
 		 		}
-		 	 }
-		 	 //We don't want duplicates
-		 	 $arrEmails = array_unique($arrEmails);
-		 	 fclose($handle);
-		 	 
-			 //We write new config file without the list emails 
-			 $fp = fopen($sConfig, "w+");
-			 flock($fp, LOCK_EX);
-			 foreach($out as $line) {
-			     fwrite($fp, $line);
-			 }
+		 	}
+		 	
+		 	//We don't want duplicates
+		 	$arrEmails = array_unique($arrEmails);
+		 	fclose($handle);
+		 	
+		 	if ($bChanged) {
+				 //We write new config file without the list emails 
+				 $fp = fopen($sConfig, "w+");
+				 flock($fp, LOCK_EX);
+				 foreach($out as $line) {
+				     fwrite($fp, $line);
+				 }
+				 
+				 //Then we add the list emails at the bottom
+				 foreach(array_filter($arrEmails) as $email) {
+				 	$line = $config_list.$email."\n";
+				 	fwrite($fp, $line);
+				 }
+				 
+				 flock($fp, LOCK_UN);
+				 fclose($fp);  
 			 
-			 //Then we add the list emails at the bottom
-			 foreach(array_filter($arrEmails) as $email) {
-			 	$line = $config_list.$email."\n";
-			 	fwrite($fp, $line);
+				 //Restart spamd service to effect changes
+			 	 shell_exec('/restart-spam.sh');
 			 }
-			 
-			 flock($fp, LOCK_UN);
-			 fclose($fp);  
 		}
-		
 		
 	}
 	
